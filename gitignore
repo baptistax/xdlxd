@@ -1,0 +1,37 @@
+# Go build outputs
+/bin/
+/dist/
+/out/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Coverage / profiling
+coverage.*
+*.coverprofile
+*.prof
+*.pprof
+
+# Logs
+*.log
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local env / runtime artifacts
+.env
+.env.*
+tmp/
+temp/
+
+# Secrets / local auth
+cookies.txt
