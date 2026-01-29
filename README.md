@@ -1,60 +1,40 @@
-# xdl
+# xdlxd
 
-A minimal, clean Go CLI to download media from X (Twitter), using the same layout philosophy as `idl`.
-
-It currently supports:
-
-- Public tweet media download (no cookies required) via the syndication endpoint
-- (Optional/experimental) authenticated profile media timelines (requires `cookies.txt`; may break as X changes often)
+A X (Twitter) media downloader written in Go.
 
 > ⚠️ Use responsibly. Download only content you have the right to access and comply with X's rules/ToS.
 
 ---
 
-## Quick start (recommended): download the binary
+## Quick start (recommended): use the prebuilt binary
 
-This is the simplest way to use `xdl`: download the prebuilt binary from the GitHub Releases page.
-
-### 1) Download
-
-Download the asset for your platform:
+Download the latest release binary for your platform from GitHub Releases:
 
 - Linux (x86_64): `xdl_linux_amd64`
 - Windows (x86_64): `xdl_windows_amd64.exe`
 
-### 2) Optional: put `cookies.txt` next to the binary (authenticated flows only)
+Repo: https://github.com/baptistax/xdlxd
 
-`xdl` will look for a Netscape format cookies export named `cookies.txt` in the same folder as the executable.
+### 1) Put `cookies.txt` next to the binary (required)
+
+`xdl` **requires** a Netscape cookies export named `cookies.txt` in the same folder as the executable.
 
 Folder example:
 
     xdl/
       xdl_linux_amd64        # or xdl_windows_amd64.exe
-      cookies.txt            # optional (only needed for authenticated flows)
+      cookies.txt            # REQUIRED
 
-### 3) Run
-
-Public tweet download (no cookies required):
+### 2) Run
 
 Linux:
 
     chmod +x ./xdl_linux_amd64
-    ./xdl_linux_amd64 <tweet_url_or_id>
+    ./xdl_linux_amd64 username or tweet
 
 Windows (PowerShell / CMD):
 
-    ./xdl_windows_amd64.exe <tweet_url_or_id>
-
-Authenticated profile download (cookies required):
-
-Linux:
-
-    chmod +x ./xdl_linux_amd64
-    ./xdl_linux_amd64 <username>
-
-Windows:
-
-    ./xdl_windows_amd64.exe <username>
+    ./xdl_windows_amd64.exe username or tweet
 
 Downloads are saved under `out/<target>/`.
 
@@ -65,66 +45,57 @@ Downloads are saved under `out/<target>/`.
 ### Requirements
 
 - Go 1.22+
-- (Optional) `cookies.txt` in Netscape format for authenticated flows
+- `cookies.txt` in Netscape format (**required**)
 
-### Clone and build
+### Build
 
-    git clone <YOUR_REPO_URL>
-    cd xdl
+    git clone https://github.com/baptistax/xdlxd
+    cd xdlxd
     go build -o xdl ./cmd/xdl
-    ./xdl <tweet_url_or_id>
+    ./xdl <tweet_url_or_id_or_username>
 
-### Dev option: go run
+Dev (no build):
 
-    go run ./cmd/xdl <tweet_url_or_id>
-
----
-
-## Cookies file (cookies.txt)
-
-`xdl` expects a Netscape cookies.txt export.
-
-Typical ways to obtain it:
-
-- Log in to X in your browser.
-- Export cookies for `x.com` / `twitter.com` using a cookie export extension/tool.
-- Save/export as Netscape format and name it `cookies.txt`.
-
-Notes:
-
-- The file can include `#HttpOnly_` lines (supported).
-- Comments starting with `#` are ignored.
-- **Never commit `cookies.txt`** (this repo's `.gitignore` ignores it).
+    go run ./cmd/xdl <tweet_url_or_id_or_username>
 
 ---
 
-## Output structure
+## cookies.txt (required)
 
-By default, downloads are stored in `out/`:
+`xdl` expects a **Netscape cookies.txt export** for `x.com` / `twitter.com`.
+
+Typical flow:
+
+1. Log in to X in your browser.
+2. Export cookies using a cookie export tool/extension.
+3. Export in Netscape format and save as `cookies.txt`.
+
+
+
+## Output
+
+By default, files go to:
 
     out/
       <target>/
-        <timestamp>_<media_id>.jpg
-        <timestamp>_<media_id>.mp4
-        <timestamp>_<media_id>_01.jpg
         ...
-
----
 
 ## Troubleshooting
 
-### "cookies.txt not found"
+### “cookies.txt not found”
 
-- For tweet URLs/IDs, cookies are **not** required.
-- For `<username>` mode, ensure `cookies.txt` is in the same folder as the binary (or run from that folder).
+- Ensure `cookies.txt` is in the same directory as the binary (and you run the command from that directory).
 
-### Empty results / errors fetching profile
+### Empty results / errors
 
-- Cookies may be expired. Export a fresh `cookies.txt`.
-- X internal endpoints change often; the authenticated adapter is intentionally kept modular.
+- Cookies may be expired — export a fresh `cookies.txt`.
+- Confirm the cookies include `x.com` / `twitter.com` entries.
 
 ---
 
-## Maintainers: release workflow (optional)
+## Maintainers: releases via GoReleaser
 
-This repository can be set up to publish Linux/Windows binaries to GitHub Releases using GoReleaser. See `.goreleaser.yaml` and `.github/workflows/release.yml`.
+This repository can publish Linux/Windows binaries to GitHub Releases using:
+
+- `.goreleaser.yaml`
+- `.github/workflows/release.yml`
