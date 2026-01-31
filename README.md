@@ -19,6 +19,23 @@ Repo: https://github.com/baptistax/xdlxd
 
 `xdl` **requires** a Netscape cookies export named `cookies.txt` in the same folder as the executable.
 
+## Cookies
+
+This project uses cookies in the standard Netscape format (`cookies.txt`).
+
+All authentication tests are performed using cookies exported with the
+**Cookie-Editor** browser extension.
+
+Recommended workflow:
+
+1. Install Cookie-Editor in your browser
+2. Login to the target website
+3. Export cookies in Netscape format
+4. Save as `cookies.txt`
+5. Pass the file to the tool
+
+Other formats (such as JSON exports) are not supported.
+
 Folder example:
 
     xdl/
