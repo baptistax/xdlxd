@@ -4,115 +4,74 @@ A X (Twitter) media downloader written in Go.
 
 > ⚠️ Use responsibly. Download only content you have the right to access and comply with X's rules/ToS.
 
----
+## Cookies workflow (required)
 
-## Quick start (recommended): use the prebuilt binary
+`xdl` reads a file named exactly `cookies.txt`.
 
-Download the latest release binary for your platform from GitHub Releases:
+Supported formats in `cookies.txt`:
+- Netscape cookies.txt format
+- Cookie-Editor JSON export format
 
-- Linux (x86_64): `xdl_linux_amd64`
-- Windows (x86_64): `xdl_windows_amd64.exe`
+No other cookie export formats are supported.
 
-Repo: https://github.com/baptistax/xdlxd
+### Steps
 
-### 1) Put `cookies.txt` next to the binary (required)
+1. Log in to X with an active browser session.
+2. Install the **Cookie-Editor** browser extension (**only Cookie-Editor has been tested**).
+3. Export cookies in **Netscape** format **or** **JSON** format.
+4. Save the exported content into a file named exactly `cookies.txt`.
+5. Place `cookies.txt` next to the `xdl` executable.
+6. Run:
+   - `xdl <username>`
 
-`xdl` **requires** a Netscape cookies export named `cookies.txt` in the same folder as the executable.
+> 🔒 Security warning: never share `cookies.txt`. Treat cookies like credentials/passwords.
 
-## Cookies
-
-This project uses cookies in the standard Netscape format (`cookies.txt`).
-
-All authentication tests are performed using cookies exported with the
-**Cookie-Editor** browser extension.
-
-Recommended workflow:
-
-1. Install Cookie-Editor in your browser
-2. Login to the target website
-3. Export cookies in Netscape format
-4. Save as `cookies.txt`
-5. Pass the file to the tool
-
-Other formats (such as JSON exports) are not supported.
-
-Folder example:
-
-    xdl/
-      xdl_linux_amd64        # or xdl_windows_amd64.exe
-      cookies.txt            # REQUIRED
-
-### 2) Run
+## Run prebuilt binary
 
 Linux:
 
-    chmod +x ./xdl_linux_amd64
-    ./xdl_linux_amd64 username or tweet
+```bash
+chmod +x ./xdl_linux_amd64
+./xdl_linux_amd64 <username>
+```
 
 Windows (PowerShell / CMD):
 
-    ./xdl_windows_amd64.exe username or tweet
+```powershell
+./xdl_windows_amd64.exe <username>
+```
 
 Downloads are saved under `out/<target>/`.
 
----
+## Build from source
 
-## Build from source (manual compilation)
-
-### Requirements
-
+Requirements:
 - Go 1.22+
-- `cookies.txt` in Netscape format (**required**)
 
-### Build
+Build:
 
-    git clone https://github.com/baptistax/xdlxd
-    cd xdlxd
-    go build -o xdl ./cmd/xdl
-    ./xdl <tweet_url_or_id_or_username>
+```bash
+git clone https://github.com/baptistax/xdlxd
+cd xdlxd
+go build -o xdl ./cmd/xdl
+./xdl <username>
+```
 
 Dev (no build):
 
-    go run ./cmd/xdl <tweet_url_or_id_or_username>
-
----
-
-## cookies.txt (required)
-
-`xdl` expects a **Netscape cookies.txt export** for `x.com` / `twitter.com`.
-
-Typical flow:
-
-1. Log in to X in your browser.
-2. Export cookies using a cookie export tool/extension.
-3. Export in Netscape format and save as `cookies.txt`.
-
-
-
-## Output
-
-By default, files go to:
-
-    out/
-      <target>/
-        ...
+```bash
+go run ./cmd/xdl <username>
+```
 
 ## Troubleshooting
 
-### “cookies.txt not found”
+### `cookies.txt not found`
 
-- Ensure `cookies.txt` is in the same directory as the binary (and you run the command from that directory).
+- Ensure the file is named exactly `cookies.txt`.
+- Place it next to the executable.
+- If not found there, the tool also checks the current working directory.
 
-### Empty results / errors
+### Auth errors / empty results
 
-- Cookies may be expired — export a fresh `cookies.txt`.
-- Confirm the cookies include `x.com` / `twitter.com` entries.
-
----
-
-## Maintainers: releases via GoReleaser
-
-This repository can publish Linux/Windows binaries to GitHub Releases using:
-
-- `.goreleaser.yaml`
-- `.github/workflows/release.yml`
+- Export a fresh cookie file from an active logged-in session.
+- Ensure required X cookies (such as `auth_token`, `ct0`) are present.

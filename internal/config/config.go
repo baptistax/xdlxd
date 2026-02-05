@@ -20,9 +20,9 @@ func LoadDefault() (*Config, error) {
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
 
-	cookiesPath := filepath.Join(cwd, "cookies.txt")
-	if _, err := os.Stat(cookiesPath); err != nil {
-		return nil, fmt.Errorf("cookies.txt not found (expected %s)", cookiesPath)
+	cookiesPath, err := resolveCookiesPath(cwd)
+	if err != nil {
+		return nil, err
 	}
 
 	outDir := filepath.Join(cwd, "out")
@@ -35,4 +35,23 @@ func LoadDefault() (*Config, error) {
 		OutputDir:   outDir,
 		UserAgent:   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
 	}, nil
+}
+
+func resolveCookiesPath(cwd string) (string, error) {
+	exePath, err := os.Executable()
+	if err == nil {
+		exePath, _ = filepath.EvalSymlinks(exePath)
+		exeDir := filepath.Dir(exePath)
+		exeCandidate := filepath.Join(exeDir, "cookies.txt")
+		if _, statErr := os.Stat(exeCandidate); statErr == nil {
+			return exeCandidate, nil
+		}
+	}
+
+	cwdCandidate := filepath.Join(cwd, "cookies.txt")
+	if _, statErr := os.Stat(cwdCandidate); statErr == nil {
+		return cwdCandidate, nil
+	}
+
+	return "", fmt.Errorf("cookies.txt not found (checked executable dir and cwd: %s)", cwdCandidate)
 }
