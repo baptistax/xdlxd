@@ -5,7 +5,7 @@ import (
 )
 
 func (c *Client) InitAuthenticatedSession() error {
-	jar, err := LoadNetscapeCookies(c.cfg.CookiesPath)
+	jar, err := LoadCookies(c.cfg.CookiesPath)
 	if err != nil {
 		return err
 	}
