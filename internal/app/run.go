@@ -18,26 +18,49 @@ func Run(args []string) error {
 		return fmt.Errorf("empty target")
 	}
 
-	cfg, err := config.LoadDefault()
+	isTweet := x.LooksLikeTweet(target)
+	printBanner()
+	statusf("Target : %s", target)
+	if isTweet {
+		statusf("Mode   : single tweet")
+	} else {
+		statusf("Mode   : profile media")
+	}
+
+	loadConfig := config.LoadDefaultRequireCookies
+	if isTweet {
+		loadConfig = config.LoadDefault
+	}
+
+	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
+	statusf("Output : %s", cfg.OutputDir)
 
 	client := x.NewClient(cfg)
 
 	// Auth is optional for single-tweet mode (public fallback exists), but required for profile mode.
-	if err := client.InitAuthenticatedSession(); err != nil {
-		if !x.LooksLikeTweet(target) {
-			return err
+	if cfg.CookiesPath != "" {
+		if err := client.InitAuthenticatedSession(); err != nil {
+			if !isTweet {
+				return err
+			}
+			statusf("Auth   : public fallback")
+			// Tweet mode can continue without auth and will fall back to public fetch.
+		} else {
+			statusf("Auth   : cookies loaded")
 		}
-		// Tweet mode can continue without auth and will fall back to public fetch.
+	} else if isTweet {
+		statusf("Auth   : public mode")
 	}
 
-	if x.LooksLikeTweet(target) {
+	if isTweet {
 		items, err := client.FetchTweetMedia(target)
 		if err != nil {
 			return err
 		}
+		statusf("Media  : %d item(s)", len(items))
 		return client.DownloadMedia(target, items)
 	}
 

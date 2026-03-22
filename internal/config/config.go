@@ -15,6 +15,14 @@ type Config struct {
 }
 
 func LoadDefault() (*Config, error) {
+	return loadDefault(false)
+}
+
+func LoadDefaultRequireCookies() (*Config, error) {
+	return loadDefault(true)
+}
+
+func loadDefault(requireCookies bool) (*Config, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("get working directory: %w", err)
@@ -22,7 +30,10 @@ func LoadDefault() (*Config, error) {
 
 	cookiesPath, err := resolveCookiesPath(cwd)
 	if err != nil {
-		return nil, err
+		if requireCookies {
+			return nil, err
+		}
+		cookiesPath = ""
 	}
 
 	outDir := filepath.Join(cwd, "out")
@@ -40,7 +51,9 @@ func LoadDefault() (*Config, error) {
 func resolveCookiesPath(cwd string) (string, error) {
 	exePath, err := os.Executable()
 	if err == nil {
-		exePath, _ = filepath.EvalSymlinks(exePath)
+		if resolvedExePath, evalErr := filepath.EvalSymlinks(exePath); evalErr == nil {
+			exePath = resolvedExePath
+		}
 		exeDir := filepath.Dir(exePath)
 		exeCandidate := filepath.Join(exeDir, "cookies.txt")
 		if _, statErr := os.Stat(exeCandidate); statErr == nil {

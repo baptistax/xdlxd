@@ -32,6 +32,11 @@ Thumbs.db
 .env.*
 tmp/
 temp/
+.gocache/
+.gocache-*/
+.gomodcache/
+.tmp-no-cookies/
+xdl
 
 # Secrets / local auth
 cookies.txt

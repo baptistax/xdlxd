@@ -74,12 +74,76 @@ func (c *Client) DownloadMedia(target string, items []MediaItem) error {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	for _, it := range items {
+	progress := &progressLine{}
+	savedCount := 0
+	cachedCount := 0
+	var savedBytes int64
+
+	for i, it := range items {
 		outPath := filepath.Join(outBase, it.FileName)
+		existing := false
+		if _, err := os.Stat(outPath); err == nil {
+			existing = true
+		}
+
+		progress.Update(
+			"Download %s %d/%d | saved %d | cached %d | %s",
+			renderProgressBar(i, len(items), 24),
+			i,
+			len(items),
+			savedCount,
+			cachedCount,
+			humanSize(savedBytes),
+		)
+
 		err := c.dl.DownloadToFile(it.URL, outPath)
 		if err != nil {
+			progress.Finish(
+				"Download failed at %d/%d",
+				i+1,
+				len(items),
+			)
 			return err
 		}
+
+		if existing {
+			cachedCount++
+			continue
+		}
+
+		info, statErr := os.Stat(outPath)
+		if statErr == nil {
+			savedBytes += info.Size()
+		}
+		savedCount++
 	}
+
+	progress.Finish(
+		"Download %s %d/%d | saved %d | cached %d | %s",
+		renderProgressBar(len(items), len(items), 24),
+		len(items),
+		len(items),
+		savedCount,
+		cachedCount,
+		humanSize(savedBytes),
+	)
+	fmt.Printf("[xdl] Done -> %s\n", outBase)
 	return nil
+}
+
+func humanSize(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+
+	suffixes := []string{"KB", "MB", "GB", "TB"}
+	div := int64(unit)
+	exp := 0
+	for n := size / unit; n >= unit && exp < len(suffixes)-1; n /= unit {
+		div *= unit
+		exp++
+	}
+
+	return fmt.Sprintf("%.1f %s", float64(size)/float64(div), suffixes[exp])
 }

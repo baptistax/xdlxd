@@ -5,6 +5,10 @@ import (
 )
 
 func (c *Client) InitAuthenticatedSession() error {
+	if c.cfg.CookiesPath == "" {
+		return fmt.Errorf("cookies.txt not configured")
+	}
+
 	jar, err := LoadCookies(c.cfg.CookiesPath)
 	if err != nil {
 		return err

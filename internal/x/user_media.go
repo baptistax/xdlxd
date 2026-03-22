@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,19 +24,15 @@ func (c *Client) FetchUserProfileMedia(screenName string, maxPages int) ([]Media
 		return nil, err
 	}
 
-	const hardMaxPages = 200
-	if maxPages <= 0 {
-		maxPages = hardMaxPages
-	}
-
 	all := make([]MediaItem, 0, 256)
 	seenURLs := map[string]bool{}
 	seenCursors := map[string]bool{"": true}
+	progress := &progressLine{}
 
 	cursor := ""
 	stagnantPages := 0
 
-	for page := 1; page <= maxPages; page++ {
+	for page := 1; shouldFetchProfilePage(page, maxPages); page++ {
 		if cursor != "" {
 			if seenCursors[cursor] {
 				if debugEnabled() {
@@ -48,6 +45,7 @@ func (c *Client) FetchUserProfileMedia(screenName string, maxPages int) ([]Media
 
 		items, nextCursor, meta, err := c.FetchUserMediaPage(userID, cursor, 20)
 		if err != nil {
+			progress.Finish("Scan failed")
 			return nil, err
 		}
 
@@ -78,6 +76,7 @@ func (c *Client) FetchUserProfileMedia(screenName string, maxPages int) ([]Media
 				meta.StatusCode, meta.BodyBytes, meta.RateLimitRemaining,
 			)
 		}
+		progress.Update("Scan page %d | total %d | +%d new", page, len(all), added)
 
 		if nextCursor == "" {
 			if debugEnabled() {
@@ -108,7 +107,12 @@ func (c *Client) FetchUserProfileMedia(screenName string, maxPages int) ([]Media
 		time.Sleep(200 * time.Millisecond)
 	}
 
+	progress.Finish("Scan complete | %d item(s) found", len(all))
 	return all, nil
+}
+
+func shouldFetchProfilePage(page int, maxPages int) bool {
+	return maxPages <= 0 || page <= maxPages
 }
 
 type PageMeta struct {
@@ -122,9 +126,10 @@ type PageMeta struct {
 }
 
 func (c *Client) ResolveUserIDByScreenName(screenName string) (string, error) {
+	normalizedScreenName := normalizeScreenName(screenName)
 	endpoint := fmt.Sprintf("https://x.com/i/api/graphql/%s/UserByScreenName", c.queryIDs.UserByScreenName)
 	variables := map[string]any{
-		"screen_name":           strings.TrimPrefix(strings.TrimSpace(screenName), "@"),
+		"screen_name":           normalizedScreenName,
 		"withGrokTranslatedBio": false,
 	}
 	features := defaultFeaturesUserByScreenName()
@@ -139,7 +144,7 @@ func (c *Client) ResolveUserIDByScreenName(screenName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	c.applyAuthHeaders(req, "https://x.com/"+strings.TrimPrefix(screenName, "@"))
+	c.applyAuthHeaders(req, "https://x.com/"+normalizedScreenName)
 
 	resp, err := utils.DoWithTimeout(c.httpClient, req, 25*time.Second)
 	if err != nil {
@@ -162,7 +167,7 @@ func (c *Client) ResolveUserIDByScreenName(screenName string) (string, error) {
 		return "", fmt.Errorf("decode UserByScreenName json: %w", err)
 	}
 
-	userID := findFirstStringValue(payload, "rest_id")
+	userID := extractUserRestID(payload, normalizedScreenName)
 	if userID == "" {
 		return "", fmt.Errorf("UserByScreenName: rest_id not found for %s", screenName)
 	}
@@ -233,10 +238,7 @@ func (c *Client) FetchUserMediaPage(userID string, cursor string, count int) ([]
 	}
 
 	items := extractMediaItemsFromAny(payload)
-	nextCursor := extractBottomCursor(payload)
-	if nextCursor == "" {
-		nextCursor = extractAnyCursor(payload)
-	}
+	nextCursor := extractNextCursor(payload)
 
 	return items, nextCursor, meta, nil
 }
@@ -253,82 +255,295 @@ func short(s string) string {
 	if len(s) <= 18 {
 		return s
 	}
-	return s[:18] + "…"
+	return s[:18] + "..."
 }
 
-func findFirstStringValue(obj any, key string) string {
-	switch v := obj.(type) {
-	case map[string]any:
-		if s, ok := v[key].(string); ok && s != "" {
-			return s
-		}
-		for _, vv := range v {
-			if found := findFirstStringValue(vv, key); found != "" {
-				return found
+func normalizeScreenName(screenName string) string {
+	return strings.TrimPrefix(strings.TrimSpace(screenName), "@")
+}
+
+func extractUserRestID(payload map[string]any, screenName string) string {
+	if payload == nil {
+		return ""
+	}
+
+	normalizedScreenName := normalizeScreenName(screenName)
+	for _, path := range [][]string{
+		{"data", "user", "result"},
+		{"data", "user", "result", "result"},
+		{"user", "result"},
+		{"user", "result", "result"},
+	} {
+		if node := lookupMapPath(payload, path...); node != nil {
+			if restID := restIDFromUserNode(node, normalizedScreenName); restID != "" {
+				return restID
 			}
 		}
-	case []any:
-		for _, vv := range v {
-			if found := findFirstStringValue(vv, key); found != "" {
-				return found
+	}
+
+	bestRestID := ""
+	bestScore := -1
+
+	var walk func(any)
+	walk = func(obj any) {
+		switch v := obj.(type) {
+		case map[string]any:
+			if score, restID := scoreUserNode(v, normalizedScreenName); score > bestScore {
+				bestScore = score
+				bestRestID = restID
 			}
+			for _, vv := range v {
+				walk(vv)
+			}
+		case []any:
+			for _, vv := range v {
+				walk(vv)
+			}
+		}
+	}
+
+	walk(payload)
+	return bestRestID
+}
+
+func lookupMapPath(root map[string]any, keys ...string) map[string]any {
+	current := root
+	for _, key := range keys {
+		next, ok := current[key].(map[string]any)
+		if !ok {
+			return nil
+		}
+		current = next
+	}
+	return current
+}
+
+func restIDFromUserNode(node map[string]any, screenName string) string {
+	if score, restID := scoreUserNode(node, screenName); score >= 0 {
+		return restID
+	}
+	if result, ok := node["result"].(map[string]any); ok {
+		if score, restID := scoreUserNode(result, screenName); score >= 0 {
+			return restID
 		}
 	}
 	return ""
 }
 
-func extractBottomCursor(obj any) string {
-	last := ""
-	var walk func(any)
-	walk = func(o any) {
-		switch v := o.(type) {
-		case map[string]any:
-			if ct, ok := v["cursorType"].(string); ok && strings.EqualFold(ct, "Bottom") {
-				if val, ok := v["value"].(string); ok && val != "" {
-					last = val
-				}
-			}
-			for _, vv := range v {
-				walk(vv)
-			}
-		case []any:
-			for _, vv := range v {
-				walk(vv)
-			}
-		}
+func scoreUserNode(node map[string]any, screenName string) (int, string) {
+	if node == nil {
+		return -1, ""
 	}
-	walk(obj)
-	return last
+
+	restID, _ := node["rest_id"].(string)
+	if restID == "" {
+		return -1, ""
+	}
+
+	score := 0
+	if typename, _ := node["__typename"].(string); strings.EqualFold(typename, "User") {
+		score += 4
+	}
+
+	if legacy, ok := node["legacy"].(map[string]any); ok {
+		score++
+		score += scoreScreenNameMatch(legacy["screen_name"], screenName)
+	} else {
+		score += scoreScreenNameMatch(node["screen_name"], screenName)
+	}
+
+	if score < 0 {
+		return -1, ""
+	}
+
+	return score, restID
 }
 
-func extractAnyCursor(obj any) string {
-	var found string
-	var walk func(any)
-	walk = func(o any) {
-		if found != "" {
-			return
+func scoreScreenNameMatch(raw any, expected string) int {
+	if expected == "" {
+		return 0
+	}
+
+	screenName, _ := raw.(string)
+	if screenName == "" {
+		return 0
+	}
+
+	if strings.EqualFold(screenName, expected) {
+		return 10
+	}
+
+	return -5
+}
+
+func extractNextCursor(payload map[string]any) string {
+	candidates := collectTimelineCursorCandidates(payload)
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].score == candidates[j].score {
+			return candidates[i].order > candidates[j].order
 		}
-		switch v := o.(type) {
+		return candidates[i].score > candidates[j].score
+	})
+
+	return candidates[0].value
+}
+
+type timelineCursorCandidate struct {
+	value string
+	score int
+	order int
+}
+
+func collectTimelineCursorCandidates(obj any) []timelineCursorCandidate {
+	candidates := make([]timelineCursorCandidate, 0, 8)
+	order := 0
+
+	addCandidate := func(candidate timelineCursorCandidate) {
+		candidate.order = order
+		order++
+		candidates = append(candidates, candidate)
+	}
+
+	var walk func(any)
+	walk = func(obj any) {
+		switch v := obj.(type) {
 		case map[string]any:
-			for k, vv := range v {
-				if strings.Contains(strings.ToLower(k), "cursor") {
-					if s, ok := vv.(string); ok && s != "" {
-						found = s
-						return
+			if instructions, ok := v["instructions"].([]any); ok {
+				for _, instructionAny := range instructions {
+					instruction, _ := instructionAny.(map[string]any)
+					if instruction == nil {
+						continue
+					}
+
+					if entries, ok := instruction["entries"].([]any); ok {
+						for _, entryAny := range entries {
+							entry, _ := entryAny.(map[string]any)
+							if candidate, ok := timelineCursorFromEntry(entry); ok {
+								addCandidate(candidate)
+							}
+						}
+					}
+
+					if entry, ok := instruction["entry"].(map[string]any); ok {
+						if candidate, ok := timelineCursorFromEntry(entry); ok {
+							addCandidate(candidate)
+						}
 					}
 				}
 			}
-			for _, vv := range v {
-				walk(vv)
+
+			for _, child := range v {
+				walk(child)
 			}
 		case []any:
-			for _, vv := range v {
-				walk(vv)
+			for _, child := range v {
+				walk(child)
 			}
 		}
 	}
+
 	walk(obj)
-	return found
+	if len(candidates) > 0 {
+		return candidates
+	}
+
+	order = 0
+	var fallbackWalk func(any)
+	fallbackWalk = func(obj any) {
+		switch v := obj.(type) {
+		case map[string]any:
+			if candidate, ok := timelineCursorFromMap(v); ok {
+				addCandidate(candidate)
+			}
+			for _, child := range v {
+				fallbackWalk(child)
+			}
+		case []any:
+			for _, child := range v {
+				fallbackWalk(child)
+			}
+		}
+	}
+
+	fallbackWalk(obj)
+	return candidates
+}
+
+func timelineCursorFromEntry(entry map[string]any) (timelineCursorCandidate, bool) {
+	if entry == nil {
+		return timelineCursorCandidate{}, false
+	}
+
+	entryID, _ := entry["entryId"].(string)
+	content, _ := entry["content"].(map[string]any)
+	if content == nil {
+		return timelineCursorFromMap(entry)
+	}
+
+	candidate, ok := timelineCursorFromMap(content)
+	if !ok {
+		return timelineCursorCandidate{}, false
+	}
+
+	entryIDLower := strings.ToLower(entryID)
+	if strings.Contains(entryIDLower, "cursor-bottom") {
+		candidate.score += 25
+	} else if strings.Contains(entryIDLower, "bottom") {
+		candidate.score += 10
+	}
+
+	return candidate, true
+}
+
+func timelineCursorFromMap(node map[string]any) (timelineCursorCandidate, bool) {
+	if node == nil {
+		return timelineCursorCandidate{}, false
+	}
+
+	entryType, _ := node["entryType"].(string)
+	cursorType, _ := node["cursorType"].(string)
+	value, _ := node["value"].(string)
+
+	if itemContent, ok := node["itemContent"].(map[string]any); ok {
+		if entryType == "" {
+			entryType, _ = itemContent["entryType"].(string)
+		}
+		if cursorType == "" {
+			cursorType, _ = itemContent["cursorType"].(string)
+		}
+		if value == "" {
+			value, _ = itemContent["value"].(string)
+		}
+	}
+
+	if value == "" || cursorType == "" {
+		return timelineCursorCandidate{}, false
+	}
+
+	score := 0
+	if strings.EqualFold(entryType, "TimelineTimelineCursor") {
+		score += 40
+	}
+
+	switch {
+	case strings.EqualFold(cursorType, "Bottom"):
+		score += 100
+	case strings.EqualFold(cursorType, "ShowMore"), strings.EqualFold(cursorType, "ShowMoreThreads"):
+		score += 60
+	case strings.EqualFold(cursorType, "Top"):
+		score += 10
+	default:
+		score += 20
+	}
+
+	return timelineCursorCandidate{
+		value: value,
+		score: score,
+	}, true
 }
 
 // extractMediaItemsFromAny mirrors legacy xdl behavior:
